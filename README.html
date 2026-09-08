@@ -1,0 +1,243 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Week 4 Lab — README</title>
+<style>
+  @page { size: A4; margin: 18mm 16mm; }
+  body { font: 11pt/1.5 Georgia, serif; color: #111; }
+  h1 { font-size: 20pt; margin: 0 0 2pt; }
+  h2 { font-size: 14pt; margin: 20pt 0 6pt; border-bottom: 1px solid #ccc;
+       padding-bottom: 3pt; page-break-after: avoid; }
+  h3 { font-size: 11.5pt; margin: 13pt 0 4pt; page-break-after: avoid; }
+  .sub { color: #666; margin: 0 0 4pt; }
+  code, pre { font-family: "DejaVu Sans Mono", monospace; font-size: 9pt; }
+  code { background: #f2f2f2; padding: 1px 3px; border-radius: 3px; }
+  pre { background: #f7f7f7; border: 1px solid #e0e0e0; border-radius: 4px;
+        padding: 8px 10px; line-height: 1.35; overflow-wrap: break-word;
+        page-break-inside: avoid; }
+  table { border-collapse: collapse; width: 100%; font-size: 9.5pt;
+          margin: 6pt 0; page-break-inside: avoid; }
+  th, td { border: 1px solid #ccc; padding: 4px 7px; text-align: left;
+           vertical-align: top; }
+  th { background: #f0f0f0; }
+  ul { margin: 4pt 0; padding-left: 18pt; }
+  li { margin: 2pt 0; }
+</style>
+
+<h1>Week 4 — GUI &amp; Problem-Solving Agent</h1>
+<p class="sub">Streamlit application (<code>app.py</code>) covering Lab Tasks 1–3.
+Course: AI Lab · CLO-2</p>
+
+<h2>1. What the application is</h2>
+<p>A single Streamlit script, <code>app.py</code>, containing all three graded
+tasks. A radio control in the sidebar selects which task is shown, so one
+deployed URL serves the whole lab.</p>
+<table>
+  <tr><th>Sidebar option</th><th>Task</th><th>What it does</th></tr>
+  <tr><td>1: EDA Interface</td><td>Task 1</td>
+      <td>Upload a CSV, inspect its metadata, plot any attribute.</td></tr>
+  <tr><td>2: Cloud Deployment Agent</td><td>Task 2</td>
+      <td>Plans the cloud deployment sequence and its total time.</td></tr>
+  <tr><td>3: Course Registration Agent</td><td>Task 3</td>
+      <td>Plans the course-registration sequence and its total cost.</td></tr>
+</table>
+
+<h3>Running it</h3>
+<pre>pip install -r requirements.txt
+streamlit run app.py        # opens http://localhost:8501</pre>
+<p>Dependencies: <code>streamlit</code>, <code>pandas</code>,
+<code>numpy</code>, <code>matplotlib</code>, <code>seaborn</code>,
+<code>scikit-learn</code>. Test dataset: <code>Titanic-Dataset.csv</code>.</p>
+
+<h2>2. How Streamlit executes this file</h2>
+<p>Streamlit re-runs the <em>entire script top to bottom</em> on every
+interaction — every upload, dropdown change, or button click. The code is
+written with that in mind:</p>
+<ul>
+  <li><code>st.set_page_config(...)</code> is the first Streamlit call, as
+      required.</li>
+  <li>The sidebar radio returns a plain string; an <code>if / elif / else</code>
+      on that string means only the selected task's code runs.</li>
+  <li>The search algorithm runs only inside <code>if st.button(...)</code>, so
+      no computation happens on an idle rerun (Key Point 2 of the manual).</li>
+  <li><code>st.stop()</code> ends the rerun early when there is nothing to show
+      yet — no file uploaded, or an unparseable file.</li>
+</ul>
+
+<h2>3. Task 1 — Exploratory Data Analysis interface</h2>
+
+<h3>3.1 Dataset ingestion &amp; validation</h3>
+<pre>uploaded_file = st.sidebar.file_uploader("Upload CSV File for Analysis", type="csv")
+if uploaded_file is None:
+    st.info("Please upload a CSV file to start EDA.")
+    st.stop()
+try:
+    df = pd.read_csv(uploaded_file)
+except Exception as e:
+    st.error(f"Could not parse this file as CSV: {e}")
+    st.stop()
+if df.empty or df.columns.empty:
+    st.error("The uploaded CSV has no data.")
+    st.stop()</pre>
+<p><code>type="csv"</code> restricts the picker to CSV files, and the
+<code>try/except</code> plus the emptiness check are the format validation the
+task asks for: a renamed or corrupt file produces a readable error instead of a
+Python traceback in the browser.</p>
+
+<h3>3.2 Metadata panel</h3>
+<table>
+  <tr><th>Requirement</th><th>Code</th></tr>
+  <tr><td>First 5 rows</td><td><code>st.dataframe(df.head())</code></td></tr>
+  <tr><td>Dimensional properties</td>
+      <td><code>df.shape[0]</code> rows × <code>df.shape[1]</code> columns</td></tr>
+  <tr><td>Column-wise data types</td>
+      <td><code>df.dtypes.astype(str).to_frame("Data Type")</code></td></tr>
+  <tr><td>Missing values per attribute</td>
+      <td><code>df.isna().sum()</code> and <code>df.isna().mean()*100</code>
+          (count and percentage, side by side)</td></tr>
+  <tr><td>Statistical summary</td>
+      <td><code>df.select_dtypes("number").agg(["mean","median","min","max"]).T</code></td></tr>
+</table>
+<p><code>.astype(str)</code> on the dtypes is needed because Streamlit's table
+renderer cannot serialise raw NumPy dtype objects. <code>select_dtypes</code>
+isolates the numerical columns, and <code>.T</code> transposes the result so
+each column of the dataset becomes a row of the summary — the same orientation
+as the expected output in the task sheet. If the file has no numerical columns
+at all, a short message replaces the table rather than an empty frame.</p>
+
+<h3>3.3 Attribute selection &amp; automated typing</h3>
+<pre>column = st.sidebar.selectbox("Select Attribute for Visualization", df.columns)
+series = df[column].dropna()
+column_type = "Numerical" if pd.api.types.is_numeric_dtype(series) else "Categorical"</pre>
+<p>The dropdown is populated straight from <code>df.columns</code>, so it adapts
+to any uploaded dataset. Typing is decided by pandas itself through
+<code>is_numeric_dtype</code> rather than by a hand-written list of type names,
+which keeps integers, floats and booleans classified correctly.
+<code>dropna()</code> is applied once here so both the statistics and the plot
+ignore missing entries (important for Titanic's <code>Age</code>, which is
+~20% missing).</p>
+
+<h3>3.4 Conditional visualisation</h3>
+<pre>fig, ax = plt.subplots(figsize=(8, 4))
+if column_type == "Numerical":
+    sns.histplot(series, kde=True, ax=ax)
+    ax.set(title=f"Histogram of {column}", xlabel=column, ylabel="Frequency")
+else:
+    counts = series.value_counts().head(20)
+    sns.barplot(x=counts.index.astype(str), y=counts.values, ax=ax)
+    ax.set(title=f"Frequency of {column}", xlabel=column, ylabel="Count")
+    ax.tick_params(axis="x", rotation=45)
+    for bar, n in zip(ax.patches, counts.values):
+        ax.annotate(f"{n / len(series) * 100:.1f}%", ...)
+st.pyplot(fig)</pre>
+<ul>
+  <li><b>Numerical branch</b> — a seaborn histogram with a KDE overlay, titled
+      and axis-labelled as specified.</li>
+  <li><b>Categorical branch</b> — <code>value_counts()</code> gives the
+      frequency of each unique value; the bar chart is annotated with each
+      bar's percentage share (the optional requirement). Labels are rotated 45°
+      so long category names stay readable.</li>
+  <li><code>.head(20)</code> caps the chart at the twenty most frequent values.
+      A free-text column such as <code>Name</code> has 891 unique values and
+      would otherwise render an unreadable wall of bars.</li>
+  <li>Because Streamlit reruns the script, changing the dropdown rebuilds the
+      figure automatically — that is the "dynamic update" requirement; no
+      callback code is needed.</li>
+</ul>
+<p>The layout requirement is met by placing both controls
+(<code>st.sidebar.file_uploader</code>, <code>st.sidebar.selectbox</code>) in
+the sidebar, with preview and metadata at the top of the main area and the
+visualization canvas below it.</p>
+
+<h2>4. Tasks 2 &amp; 3 — the problem-solving agents</h2>
+<p>Both tasks are the same problem: a state-space graph with weighted
+transitions, a start state, a goal state, and a request for the execution
+sequence plus its total path cost. They therefore share one search function and
+one renderer, and differ only in the data passed in.</p>
+
+<h3>4.1 The search — <code>uniform_cost_search</code></h3>
+<pre>def uniform_cost_search(graph, start, goal):
+    frontier = [(0, start, [start])]
+    visited = set()
+    while frontier:
+        cost, node, path = heapq.heappop(frontier)
+        if node == goal:
+            return path, cost
+        if node in visited:
+            continue
+        visited.add(node)
+        for nxt, step in graph.get(node, []):
+            if nxt not in visited:
+                heapq.heappush(frontier, (cost + step, nxt, path + [nxt]))
+    return None, None</pre>
+<table>
+  <tr><th>Element</th><th>Role in the agent</th></tr>
+  <tr><td><code>graph</code></td>
+      <td>Transition model: an adjacency list mapping each state to
+          <code>(next_state, cost)</code> pairs.</td></tr>
+  <tr><td><code>frontier</code></td>
+      <td>A min-heap ordered by accumulated cost, so the cheapest partial plan
+          is always expanded first.</td></tr>
+  <tr><td><code>visited</code></td>
+      <td>Prevents revisiting a completed step — an explicit requirement of
+          Task 3 and what keeps the search terminating on cyclic graphs.</td></tr>
+  <tr><td><code>node == goal</code></td>
+      <td>The goal test. Reaching it returns the full action sequence and its
+          accumulated path cost.</td></tr>
+  <tr><td><code>return None, None</code></td>
+      <td>The frontier emptied without reaching the goal: no plan exists.</td></tr>
+</table>
+<p>Uniform-cost search is used rather than plain BFS because the edges carry
+unequal weights (2, 4, 3, 5, 2, 1 minutes in Task 2); BFS would return the plan
+with the fewest steps, not the cheapest one. On these two linear workflows both
+happen to agree, but the algorithm stays correct if an alternative or shortcut
+route is later added to either graph.</p>
+
+<h3>4.2 The renderer — <code>render_agent</code></h3>
+<p>One function draws the whole agent page for either task:</p>
+<ul>
+  <li><b>State space</b> — a table of every state and its meaning, generated
+      from the <code>states</code> dictionary.</li>
+  <li><b>Transition model</b> — every edge as <em>From → Action → To</em> with
+      its cost, built by flattening the adjacency list.</li>
+  <li><b>Run Planning Agent</b> button — gates the search, then prints the
+      sequence <code>S0 → S1 → … → goal</code>, a step-by-step table pairing
+      each transition with its action name and cost, the total via
+      <code>st.metric</code>, and the goal test result. If no plan is found it
+      shows an error instead.</li>
+</ul>
+<p>The step table is built by zipping the path with itself offset by one
+(<code>zip(path, path[1:])</code>), which turns the list of states into the
+list of transitions between them.</p>
+
+<h3>4.3 Task 2 — cloud resource deployment</h3>
+<p>Initial state <code>S0</code> (request received) → goal <code>S6</code>
+(deployment completed). Actions: allocate resources, create VM, install
+dependencies, deploy AI model, verify deployment. Costs are execution times in
+minutes: 2 + 4 + 3 + 5 + 2 + 1, so the agent reports a
+<b>17-minute</b> optimal plan, matching the state-space diagram in the task
+sheet.</p>
+
+<h3>4.4 Task 3 — university course registration</h3>
+<p>Initial state <code>S0</code> (student login) → goal <code>S5</code>
+(enrollment confirmed). Actions: authenticate student, verify prerequisites,
+select courses, verify fee status, confirm enrollment. Each step has a
+processing cost, totalling <b>7 units</b> — again matching the diagram. The
+<code>visited</code> set satisfies the "prevent revisiting completed
+registration steps" requirement.</p>
+
+<h2>5. Verification</h2>
+<p>The search was checked against four cases: both lab graphs (asserting
+17 minutes and 7 units with the exact expected sequences), a graph where a
+longer-in-steps route is cheaper (confirming it returns the cheaper plan, not
+the shorter one), and an unreachable goal (confirming
+<code>(None, None)</code>). The app was then launched headless and served
+HTTP 200 with no errors in the log.</p>
+
+<h2>6. Files</h2>
+<table>
+  <tr><th>File</th><th>Purpose</th></tr>
+  <tr><td><code>app.py</code></td><td>The application — all three tasks.</td></tr>
+  <tr><td><code>requirements.txt</code></td><td>Dependencies for deployment.</td></tr>
+  <tr><td><code>Titanic-Dataset.csv</code></td><td>Test dataset for Task 1.</td></tr>
+  <tr><td><code>README.pdf</code></td><td>This document.</td></tr>
+</table>
